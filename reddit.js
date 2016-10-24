@@ -4,7 +4,7 @@ var HASH_ROUNDS = 10;
 module.exports = function RedditAPI(conn) {
   return {
     createUser: function(user, callback) {
-      
+
       // first we have to hash the password...
       bcrypt.hash(user.password, HASH_ROUNDS, function(err, hashedPassword) {
         if (err) {
@@ -48,7 +48,7 @@ module.exports = function RedditAPI(conn) {
                       3b. If the insert succeeds, re-fetch the user from the DB
                       4. If the re-fetch succeeds, return the object to the caller
                       */
-                        callback(null, result[0]);
+                      callback(null, result[0]);
                     }
                   }
                 );
@@ -58,9 +58,13 @@ module.exports = function RedditAPI(conn) {
         }
       });
     },
-    createPost: function(post, callback) {
+    createPost: function(post, subredditId, callback) {
+       if (!subredditId) {
+        callback(new Error('subredditId is required'));
+        return;
+      }
       conn.query(
-        'INSERT INTO posts (userId, title, url, createdAt) VALUES (?, ?, ?, ?)', [post.userId, post.title, post.url, new Date()],
+        'INSERT INTO posts (userId, subredditId, title, url, createdAt) VALUES (?, ?, ?, ?, ?)', [post.userId, subredditId, post.title, post.url, new Date()],
         function(err, result) {
           if (err) {
             callback(err);
@@ -71,7 +75,9 @@ module.exports = function RedditAPI(conn) {
             the post and send it to the caller!
             */
             conn.query(
-              'SELECT id,title,url,userId, createdAt, updatedAt FROM posts WHERE id = ?', [result.insertId],
+              `SELECT posts.id, posts.title, posts.url, posts.userId, posts.createdAt, posts.updatedAt, posts.subredditId 
+              FROM posts 
+              WHERE id = ?`, [result.insertId],
               function(err, result) {
                 if (err) {
                   callback(err);
@@ -85,6 +91,9 @@ module.exports = function RedditAPI(conn) {
         }
       );
     },
+//In the reddit.js API, modify the getAllPosts function to return the full subreddit associated with each post. You will 
+//have to do an extra JOIN to accomplish this.    
+    
     getAllPosts: function(options, callback) {
       // In case we are called without an options parameter, shift all the parameters manually
       if (!callback) {
@@ -93,22 +102,149 @@ module.exports = function RedditAPI(conn) {
       }
       var limit = options.numPerPage || 25; // if options.numPerPage is "falsy" then use 25
       var offset = (options.page || 0) * limit;
-      
+      var sortingMethod = options.sortingMethod;
+      console.log('options.sortingMethod:  ',sortingMethod);///???? need to add into [] in conn.query??  // need both sortingMethod(s) variables??
+      console.log('sortingMethods:  ',sortingMethods.sortingMethod);
+      var sortingMethods = {
+        'new': 'posts.createdAt DESC',
+        top: 'votes.vote desc' //works when tested in mysql but not in demo...check sortingMethods[sortingMethod]....
+      };
+      // ?????? need to join votes on votes.postId=posts.id too ?????
       conn.query(`
-        SELECT id, title, url, userId, createdAt, updatedAt
-        FROM posts
-        ORDER BY createdAt DESC
-        LIMIT ? OFFSET ?`
-        , [limit, offset],
+        SELECT posts.id AS postsId, posts.title AS postsTitle, posts.url AS postsUrl, posts.userId AS postsUserId, posts.createdAt AS postsCreatedAt,
+        posts.updatedAt AS postsUpdatedAt, posts.subredditId as postSubredditId, users.id AS usersId, users.username AS usersUsername,
+        users.createdAt AS usersCreatedAt, users.updatedAt AS usersUpdatedAt, subreddits.name AS subredditName, 
+        subreddits.description AS subredditDescription, votes.vote as voteVote
+        FROM posts JOIN users on posts.userId=users.id
+        JOIN subreddits On posts.subredditId=subreddits.id
+        JOIN votes ON votes.userId=users.id
+        ORDER BY ?
+        LIMIT ? OFFSET ?`, [sortingMethods[sortingMethod], limit, offset],
         function(err, results) {
+          //console.log('results[0]:  ',results[0]);
+          if (err) {
+            callback(err);
+          }
+          else {
+            var originalArray = results;
+            var reformattedArray = originalArray.map(function(obj){
+            var rObj = {};
+              rObj.id = obj.postsId;
+              rObj.title = obj.postsTitle;
+              rObj.url = obj.postsUrl;
+              rObj.createdAt = obj.postsCreatedAt;
+              rObj.updatedAt = obj.postsUpdatedAt;
+              rObj.userId = obj.postsUserId;
+              rObj.user = {
+                    id : obj.usersId,
+                    username : obj.usersUsername,
+                    createdAt : obj.usersCreatedAt,
+                    updatedAt : obj.usersUpdatedAt
+              };
+              rObj.subreddit = {
+                        name: obj.subredditName, 
+                        description: obj.subredditDescription
+                      };
+              rObj.vote = obj.voteVote;        
+            return rObj;
+            });
+            results = reformattedArray;
+            callback(null, results);
+          }
+        }
+      );
+    },
+    getAllPostsForUser: function(userId, options, callback) {
+      if (!callback) {
+        callback = options;
+        options = {};
+      }
+      var limit = options.numPerPage || 25; // if options.numPerPage is "falsy" then use 25
+      var offset = (options.page || 0) * limit;
+      conn.query(`
+        SELECT posts.title as postsTitle, posts.url as postsUrl, users.username as usersUsername, posts.createdAt as postsCreatedAt
+        FROM posts JOIN users on users.id=posts.userId
+        ORDER BY posts.createdAt DESC
+        LIMIT ? OFFSET ?`, [limit, offset],
+        function(err, results) {
+          if (err) {
+            callback(err);
+          }
+          else {
+            callback(null,  console.log(results[userId].usersUsername),
+                            console.log('\n'),
+                            results.forEach(function(post){
+                              console.log(post.postsTitle),
+                              console.log(post.postsUrl),
+                              console.log(post.postsCreatedAt+'\n');
+                            })
+            );
+                      
+            
+          }
+        }
+      );
+    },
+    getSinglePost: function(postId, callback) {
+      conn.query(`
+        SELECT posts.title as postsTitle, posts.url as postUrl, users.username as userUsername, posts.createdAt as postCreatedAt
+        FROM posts JOIN users on users.id=posts.userId
+        WHERE posts.id = ?`, [postId], function(err, results) {
           if (err) {
             callback(err);
           }
           else {
             callback(null, results);
           }
+        });
+    },
+    createSubreddit: function(sub, callback) {
+      conn.query(`INSERT into subreddits (name, description, createdAt) VALUES(?,?,?)`, [sub.name, sub.description, new Date()],
+      function(err, results) {
+        if (err) {
+          callback(err);
         }
-      );
+        else {
+          callback(null, results);
+        }
+      });
+    },
+    
+// In the reddit.js API, add a getAllSubreddits(callback) function. It should return the list of all subreddits, ordered by 
+// the newly created one first.
+    
+    getAllSubreddits: function(callback) {
+      conn.query(`
+      SELECT id, name, description, createdAt
+      FROM subreddits
+      ORDER BY createdAt DESC
+      `, 
+      function(err, results){
+        if(err) {
+          callback(err);
+        }
+        else {
+          callback(null, results);
+        }
+      });
+    },
+    createOrUpdateVote: function(vote, callback) {
+      if (vote.vote !== 1 && vote.vote !==0 && vote.vote !== -1)  {
+        callback(new Error('Not a valid vote'));
+        return;
+      }
+      conn.query(`
+      INSERT INTO votes (userId, postId, vote) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE vote=?
+      `, [vote.userId, vote.postId, vote.vote, vote.vote],
+      function(err, results){
+        if (err) {
+          callback(err);
+        }
+        else {
+          callback(null,results);
+        }
+      });
     }
   }
 }
