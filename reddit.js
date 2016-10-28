@@ -1,8 +1,25 @@
 var bcrypt = require('bcrypt');
 var HASH_ROUNDS = 10;
+var secureRandom = require('secure-random');
+
+function createSessionToken() {
+  return secureRandom.randomArray(100).map(code => code.toString(36)).join('');
+}
 
 module.exports = function RedditAPI(conn) {
   return {
+    createSession: function(userId, callback) {
+      var token = createSessionToken();
+      conn.query('INSERT INTO sessions SET userId = ?, token = ?', [userId, token], function(err, result){
+        if (err) {
+          callback(err);
+        }  
+        else {
+          callback(null, token);
+        }
+        
+      });
+    },
     createUser: function(user, callback) {
 
       // first we have to hash the password...
@@ -58,13 +75,40 @@ module.exports = function RedditAPI(conn) {
         }
       });
     },
-    createPost: function(post, subredditId, callback) {
-       if (!subredditId) {
-        callback(new Error('subredditId is required'));
-        return;
-      }
+    checkLogin: function(user, pass, callback) {
+      conn.query('SELECT * FROM users WHERE username = ?', [user], function(err, result) {
+        if (err) {
+          callback(err);
+        }
+        else {
+          if (result.length === 0) {
+            callback(new Error('username or password incorrect')); // in this case the user does not exists
+          }
+          else {
+            var user = result[0];
+            var actualHashedPassword = user.password;
+            bcrypt.compare(pass, actualHashedPassword, function(err, result) {
+              if (result === true) { // let's be extra safe here
+                callback(null, user);
+              }
+              else {
+                callback(new Error('username or password incorrect')); // in this case the password is wrong, but we reply with the same error
+              }
+            });
+          }
+        }
+      });
+    },
+    createPost: function(post, loggedIn, callback) {
+      //console.log('loggedIn:  ',loggedIn[0].sessionsUserId);
+      // could include a subredditId in parameters above...
+      // if (!subredditId) {
+      //   callback(new Error('subredditId is required'));
+      //   return;
+      // }
       conn.query(
-        'INSERT INTO posts (userId, subredditId, title, url, createdAt) VALUES (?, ?, ?, ?, ?)', [post.userId, subredditId, post.title, post.url, new Date()],
+        `INSERT INTO posts (userId, title, url, createdAt) VALUES (?, ?, ?, ?)
+        `, [loggedIn[0].sessionsUserId, post.title, post.url, new Date()],
         function(err, result) {
           if (err) {
             callback(err);
@@ -93,9 +137,30 @@ module.exports = function RedditAPI(conn) {
     },
 //In the reddit.js API, modify the getAllPosts function to return the full subreddit associated with each post. You will 
 //have to do an extra JOIN to accomplish this.    
-    
+    getUserFromSessionId: function(sessionCookie, callback) {
+      //console.log('sessionCookie:  ',sessionCookie);
+      conn.query(`
+      SELECT sessions.userId as sessionUserId, sessions.token as sessionToken, users.id as userId, users.username as userUsername
+      FROM sessions 
+      JOIN users ON sessions.userId=users.id
+      WHERE sessions.token=?
+      `,[sessionCookie], 
+      function(err, user){
+        console.log('getUserFromSess user:',user);
+        if(err) {
+          callback(err);
+        }
+        else {
+          var userObj = user[0];
+          console.log(userObj);
+          callback(null, userObj);
+        }
+      })
+    },
     getAllPosts: function(options, callback) {
       // In case we are called without an options parameter, shift all the parameters manually
+   
+      
       if (!callback) {
         callback = options;
         options = {};
@@ -103,23 +168,34 @@ module.exports = function RedditAPI(conn) {
       var limit = options.numPerPage || 25; // if options.numPerPage is "falsy" then use 25
       var offset = (options.page || 0) * limit;
       var sortingMethod = options.sortingMethod;
-      console.log('options.sortingMethod:  ',sortingMethod);///???? need to add into [] in conn.query??  // need both sortingMethod(s) variables??
-      console.log('sortingMethods:  ',sortingMethods.sortingMethod);
-      var sortingMethods = {
-        'new': 'posts.createdAt DESC',
-        top: 'votes.vote desc' //works when tested in mysql but not in demo...check sortingMethods[sortingMethod]....
+      var sort = {
+        new: 'posts.createdAt',
+        
       };
-      // ?????? need to join votes on votes.postId=posts.id too ?????
+      //console.log('sort.sortingMethod...',sort.sortingMethod);
+      
+      // console.log('sortingMethod:  ',sortingMethod);
+      
+      // var sortingMethods = {
+      //   new: 'posts.createdAt',
+      //   top: 'sum(votes.vote)',
+      //   hot: 'SUM(votes.vote)/(NOW() - posts.createdAt)'
+      // };
+      // console.log('sortingMethods:  ',sortingMethods[sortingMethod]);
+
       conn.query(`
         SELECT posts.id AS postsId, posts.title AS postsTitle, posts.url AS postsUrl, posts.userId AS postsUserId, posts.createdAt AS postsCreatedAt,
         posts.updatedAt AS postsUpdatedAt, posts.subredditId as postSubredditId, users.id AS usersId, users.username AS usersUsername,
         users.createdAt AS usersCreatedAt, users.updatedAt AS usersUpdatedAt, subreddits.name AS subredditName, 
-        subreddits.description AS subredditDescription, votes.vote as voteVote
+        subreddits.description AS subredditDescription, votes.vote as voteVote,
+        sum(votes.vote) as top,
+        posts.createdAt as new
         FROM posts JOIN users on posts.userId=users.id
-        JOIN subreddits On posts.subredditId=subreddits.id
-        JOIN votes ON votes.userId=users.id
-        ORDER BY ?
-        LIMIT ? OFFSET ?`, [sortingMethods[sortingMethod], limit, offset],
+        LEFT JOIN subreddits On posts.subredditId=subreddits.id
+        LEFT JOIN votes ON votes.postId=posts.id
+        GROUP BY posts.id
+        ORDER BY ?? DESC
+        LIMIT ? OFFSET ?`, [sort.sortingMethod,limit, offset],  //sort.sortingmethod as first var for order by ? -does not work, putting posts.createdAt in query does..?
         function(err, results) {
           //console.log('results[0]:  ',results[0]);
           if (err) {
@@ -146,13 +222,16 @@ module.exports = function RedditAPI(conn) {
                         description: obj.subredditDescription
                       };
               rObj.vote = obj.voteVote;        
-            return rObj;
+            return rObj; //something going wrong with the object createdAt
             });
             results = reformattedArray;
             callback(null, results);
           }
         }
       );
+    },
+    testFunction: function() {
+      console.log('It works');
     },
     getAllPostsForUser: function(userId, options, callback) {
       if (!callback) {
@@ -199,13 +278,14 @@ module.exports = function RedditAPI(conn) {
         });
     },
     createSubreddit: function(sub, callback) {
-      conn.query(`INSERT into subreddits (name, description, createdAt) VALUES(?,?,?)`, [sub.name, sub.description, new Date()],
-      function(err, results) {
+      conn.query(`
+      INSERT into subreddits (name, description, createdAt) VALUES(?,?,?)`, [sub.subreddit, sub.url, new Date()], 
+      function(err, subredditId) {
         if (err) {
           callback(err);
         }
         else {
-          callback(null, results);
+          callback(null, subredditId);
         }
       });
     },
@@ -229,7 +309,7 @@ module.exports = function RedditAPI(conn) {
       });
     },
     createOrUpdateVote: function(vote, callback) {
-      if (vote.vote !== 1 && vote.vote !==0 && vote.vote !== -1)  {
+      if (vote.vote !== '1' && vote.vote !== '0' && vote.vote !== '-1')  {
         callback(new Error('Not a valid vote'));
         return;
       }

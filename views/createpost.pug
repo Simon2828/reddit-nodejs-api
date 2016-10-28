@@ -1,0 +1,16 @@
+extends layout.pug
+
+block title
+    title create post
+    
+block content    
+    form(action="/createpost", method="POST")
+        div
+            input(type="text", name="url", placeholder="Enter a URL")
+        div
+            input(type="text", name="title", placeholder="Enter a title")
+        div
+            select(id="allSubreddits")
+                each subreddit in subreddits
+                    option(value=subreddit.id)= subreddit.name
+        button(type="submit") Post!
