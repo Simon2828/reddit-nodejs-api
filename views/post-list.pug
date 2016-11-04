@@ -1,24 +1,37 @@
 extends layout.pug
 
 block title
-  title Welcome to Reddit Clone!!!
+  title #{title}
 
 block content
   header
-    div
-      a(href="./login") login
-    div
-      a(href="./createpost") create post
-    div
-      a(href="./signup") sign up
-  h1 Welcome to Reddit!!!
+    nav(class="nav")
+      div
+        a(href="./signup") sign up
+      div
+        a(href="./login") login
+      div
+        a(href="./createpost") create post
+      ul(class="nav-subreddits") subreddits
+        li
+          a(href="./r/sport") sport
+        li
+          a(href="./r/football") football
+        li
+          a(href="./r/music") music
+        li
+          a(href="./r/film") film
+        li
+          a(href="./r/books") books
+  h1 welcome to minireddit!
   ul.post-list
     each post in posts
       li.post
         h2
-          a(href=post.url)= post.title
+          a(href='https://'+post.url)= post.title
         p Submitted by #{post.user.username}
-        p Score: #{post.top} Upvotes: #{post.upVotes} Downvotes: #{post.downVotes}
+        p Score: #{post.totalVotes} Upvotes: #{post.numUpVotes} Downvotes: #{post.numDownVotes}
+        p Submitted: #{post.createdAt}
         form(action="/vote", method="POST")
             input(type="hidden" name="vote" value="1")
             input(type="hidden" name="postId" value=post.id)

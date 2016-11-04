@@ -1,0 +1,12 @@
+extends layout
+
+block title
+    title #{subreddits[0].subredditName} #{title}
+    
+block content
+    h2 #{subreddits[0].subredditName}
+    ul
+        each subreddit in subreddits
+            li.subreddit
+                a(href=subreddit.postUrl)= subreddit.subredditDescription
+                p #{subreddit.postCreatedAt}

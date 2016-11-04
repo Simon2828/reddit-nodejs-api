@@ -39,49 +39,49 @@ var redditAPI = reddit(connection);
 
 // for (var i=0; i<=7; i++) {
 
-//     redditAPI.createPost({
-//       title: 'hi reddit!'+i+1,  //+i for for loop
-//       url: 'https://www.reddit.com',
-//       userId: i+5  // this needs to change if tested again...needs to equal posts.id
-//     }, 4, function(err, post) {
-//       if (err) {
-//         console.log(err);
-//       }
-//       else {
-//         console.log(post);
-//       }
+    // redditAPI.createPost({
+    //   title: 'hi reddit!',  //+i for for loop
+    //   url: 'https://www.reddit.com',
+    //   userId: i+5  // this needs to change if tested again...needs to equal posts.id
+    // }, 4, function(err, post) {
+    //   if (err) {
+    //     console.log(err);
+    //   }
+    //   else {
+    //     console.log(post);
+    //   }
       
-//     });
+    // });
 // }
-redditAPI.getAllPosts(
-  {
-    numPerPage: 15, 
-    page:0,
-    sortingMethod: 'new'
-  },
+// redditAPI.getAllPosts(
+//   {
+//     numPerPage: 5, 
+//     page:0,
+//     sortingMethod: 'new'
+//   },
 
-function(err,posts){
-  if (err) {
-    console.log(err);
+// function(err,posts){
+//   if (err) {
+//     console.log(err);
    
-  }
-  else {
-    console.log(posts);
+//   }
+//   else {
+//     console.log(posts);
         
-  }
-connection.end();
+//   }
+// connection.end();
     
-});
+// });
 
-redditAPI.getAllPostsForUser(8, {numPerPage: 10, page:0}, function(err,posts){
-  if (err) {
-    console.log(err);
-  }
-  else {
-    console.log(JSON.stringify(posts, null, 4));
-  }
-  connection.end();
-});
+// redditAPI.getAllPostsForUser(8, {numPerPage: 10, page:0}, function(err,posts){
+//   if (err) {
+//     console.log(err);
+//   }
+//   else {
+//     console.log(JSON.stringify(posts, null, 4));
+//   }
+//   connection.end();
+// });
 
 // Currently there is no way to retrieve a single post by its ID. This would be important for eventually displaying this data
 //on a webpage. Create this function, and make it return a single post, without array.

@@ -1,12 +1,10 @@
 extends layout.pug
 
 block title
-    title signup
+    title #{title}
     
 block content    
     form(action="/signup", method="POST")
-        div
-            input(type="text", name="username", placeholder="Enter a username")
-        div
-            input(type="password", name="password", placeholder="Enter a password")
+        input(type="text", name="username", placeholder="Enter a username")
+        input(type="password", name="password", placeholder="Enter a password")
         button(type="submit") Sign up

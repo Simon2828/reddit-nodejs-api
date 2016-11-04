@@ -7,7 +7,7 @@ function createSessionToken() {
 }
 
 module.exports = function RedditAPI(conn) {
-  return {
+  var api = {
     createSession: function(userId, callback) {
       var token = createSessionToken();
       conn.query('INSERT INTO sessions SET userId = ?, token = ?', [userId, token], function(err, result){
@@ -100,16 +100,17 @@ module.exports = function RedditAPI(conn) {
       });
     },
     createPost: function(post, loggedIn, callback) {
-      //console.log('loggedIn:  ',loggedIn[0].sessionsUserId);
+      //console.log('loggedIn:  ',loggedIn.sessionUserId);
       // could include a subredditId in parameters above...
       // if (!subredditId) {
       //   callback(new Error('subredditId is required'));
       //   return;
       // }
       conn.query(
-        `INSERT INTO posts (userId, title, url, createdAt) VALUES (?, ?, ?, ?)
-        `, [loggedIn[0].sessionsUserId, post.title, post.url, new Date()],
+        `INSERT INTO posts (title, url, userId, createdAt, subredditId) VALUES (?, ?, ?, ?, ?)
+        `, [post.title, post.url, loggedIn.sessionUserId, new Date(), post.subredditId],
         function(err, result) {
+          //console.log('post:...',post);
           if (err) {
             callback(err);
           }
@@ -146,7 +147,7 @@ module.exports = function RedditAPI(conn) {
       WHERE sessions.token=?
       `,[sessionCookie], 
       function(err, user){
-        console.log('getUserFromSess user:',user);
+        //console.log('getUserFromSess user:',user);
         if(err) {
           callback(err);
         }
@@ -172,16 +173,6 @@ module.exports = function RedditAPI(conn) {
         new: 'posts.createdAt',
         
       };
-      //console.log('sort.sortingMethod...',sort.sortingMethod);
-      
-      // console.log('sortingMethod:  ',sortingMethod);
-      
-      // var sortingMethods = {
-      //   new: 'posts.createdAt',
-      //   top: 'sum(votes.vote)',
-      //   hot: 'SUM(votes.vote)/(NOW() - posts.createdAt)'
-      // };
-      // console.log('sortingMethods:  ',sortingMethods[sortingMethod]);
 
       conn.query(`
         SELECT posts.id AS postsId, posts.title AS postsTitle, posts.url AS postsUrl, posts.userId AS postsUserId, posts.createdAt AS postsCreatedAt,
@@ -189,21 +180,23 @@ module.exports = function RedditAPI(conn) {
         users.createdAt AS usersCreatedAt, users.updatedAt AS usersUpdatedAt, subreddits.name AS subredditName, 
         subreddits.description AS subredditDescription, votes.vote as voteVote,
         sum(votes.vote) as top,
-        posts.createdAt as new
+        posts.createdAt as new,
+        sum(votes.vote=1) as numUpVotes,
+        sum(votes.vote=-1) as numDownVotes,
+        SUM(votes.vote)/(NOW() - posts.createdAt) AS hotnessRanking
         FROM posts JOIN users on posts.userId=users.id
         LEFT JOIN subreddits On posts.subredditId=subreddits.id
         LEFT JOIN votes ON votes.postId=posts.id
         GROUP BY posts.id
         ORDER BY ?? DESC
-        LIMIT ? OFFSET ?`, [sort.sortingMethod,limit, offset],  //sort.sortingmethod as first var for order by ? -does not work, putting posts.createdAt in query does..?
+        LIMIT ? OFFSET ?`, [sort.new,limit, offset],  //sort.sortingmethod as first var for order by ? -does not work, putting posts.createdAt in query does..?
         function(err, results) {
           //console.log('results[0]:  ',results[0]);
           if (err) {
             callback(err);
           }
           else {
-            var originalArray = results;
-            var reformattedArray = originalArray.map(function(obj){
+            results = results.map(function(obj){
             var rObj = {};
               rObj.id = obj.postsId;
               rObj.title = obj.postsTitle;
@@ -221,10 +214,13 @@ module.exports = function RedditAPI(conn) {
                         name: obj.subredditName, 
                         description: obj.subredditDescription
                       };
-              rObj.vote = obj.voteVote;        
+              rObj.vote = obj.voteVote;  
+              rObj.totalVotes = obj.top;
+              rObj.numUpVotes = obj.numUpVotes;
+              rObj.numDownVotes = obj.numDownVotes;
+              rObj.hotnessRanking = obj.hotnessRanking;
             return rObj; //something going wrong with the object createdAt
             });
-            results = reformattedArray;
             callback(null, results);
           }
         }
@@ -289,24 +285,62 @@ module.exports = function RedditAPI(conn) {
         }
       });
     },
+    getSubredditTitles: function(callback) {
+      conn.query(`
+      SELECT name, id
+      FROM subreddits
+      `, function(err, subredditNames) {
+        if (err) {
+          callback(err);
+        }
+        else {
+          callback(null, subredditNames);
+        }
+      })
+    },
     
 // In the reddit.js API, add a getAllSubreddits(callback) function. It should return the list of all subreddits, ordered by 
 // the newly created one first.
     
-    getAllSubreddits: function(callback) {
+    getAllSubreddits: function(subreddit, callback) {
       conn.query(`
-      SELECT id, name, description, createdAt
+      SELECT subreddits.id as subredditId, subreddits.name as subredditName, subreddits.description as subredditDescription,
+      posts.subredditId as postSubredditId, posts.url as postUrl, posts.createdAt as postCreatedAt
       FROM subreddits
-      ORDER BY createdAt DESC
-      `, 
-      function(err, results){
-        if(err) {
+      JOIN posts on posts.subredditId=subreddits.id
+      where subreddits.name = ?
+      ORDER BY posts.createdAt DESC`, [subreddit], function(err,subreddits) {
+        if (err) {
           callback(err);
         }
         else {
-          callback(null, results);
+          callback(null,subreddits);
         }
-      });
+      });  
+    
+    
+    
+    
+    // function(options, callback) {
+    //     if (!callback) {
+    //       callback = options;
+    //       options = {};
+    //     }
+    //     api.getAllPosts(options, callback);
+      
+    //   conn.query(`
+    //   SELECT id, name, description, createdAt
+    //   FROM subreddits
+    //   ORDER BY createdAt DESC
+    //   `, 
+    //   function(err, results){
+    //     if(err) {
+    //       callback(err);
+    //     }
+    //     else {
+    //       callback(null, results);
+    //     }
+    //  });
     },
     createOrUpdateVote: function(vote, callback) {
       if (vote.vote !== '1' && vote.vote !== '0' && vote.vote !== '-1')  {
@@ -326,5 +360,6 @@ module.exports = function RedditAPI(conn) {
         }
       });
     }
-  }
+  };
+  return api;
 }

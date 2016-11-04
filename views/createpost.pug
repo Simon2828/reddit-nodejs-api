@@ -1,16 +1,17 @@
 extends layout.pug
 
 block title
-    title create post
+    title #{title}
     
 block content    
     form(action="/createpost", method="POST")
         div
             input(type="text", name="url", placeholder="Enter a URL")
+            button(class="suggestTitle") suggest title
         div
             input(type="text", name="title", placeholder="Enter a title")
         div
-            select(id="allSubreddits")
+            select(name="subredditId")
                 each subreddit in subreddits
                     option(value=subreddit.id)= subreddit.name
         button(type="submit") Post!
